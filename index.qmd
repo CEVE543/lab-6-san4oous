@@ -1,0 +1,121 @@
+---
+title: "CEVE 543 Fall 2025 Lab 6: Julia Climate Data Tools"
+subtitle: "YAXArrays.jl, NetCDF.jl, exploring CMIP6 data structure"
+author: CEVE 543 Fall 2025
+date: "2025-10-17"
+type: "lab"
+module: 2
+week: 9
+objectives:
+  - "Load and explore climate model output using YAXArrays.jl"
+  - "Work with NetCDF files and understand CMIP6 data structure"
+  - "Extract and visualize climate model data for specific locations and time periods"
+  - "Establish foundation for downscaling and bias correction exercises"
+ps_connection: "Establishes data handling skills needed for all PS2 problems working with climate model output"
+
+engine: julia
+
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-block-bg: "#f8f8f8"
+    code-block-border-left: "#e1e4e5"
+    theme: simplex
+    number-sections: true
+    fig-format: svg
+  typst:
+    fontsize: 11pt
+    margin: 
+      x: 1in
+      y: 1in
+    number-sections: true
+    fig-format: svg
+
+execute: 
+  cache: true
+  freeze: auto
+
+# Code formatting options
+code-overflow: wrap
+code-line-numbers: false
+code-block-font-size: "0.85em"
+---
+
+## Background
+
+Python's xarray package has been transformative for working with labeled multi-dimensional arrays in climate science.
+Originally developed at The Climate Corporation and released as open source in 2014, xarray has become the standard tool for climate data analysis in Python.
+Julia has been less widely adopted in this space, but the [Climate Modeling Alliance](https://clima.caltech.edu/) is building an Earth System Model from scratch in Julia, driving development of climate data tools in the Julia ecosystem.
+
+The Julia approach offers distinct advantages for this course.
+Because Julia is fast and doesn't require switching to C, Fortran, or C++ for performance-critical code, we can implement statistical methods and algorithms in pure Julia and apply them directly to climate data.
+This means you can write custom downscaling algorithms, bias correction methods, and statistical models without learning specialized library syntax or dealing with language interoperability issues.
+The resulting code is often easier to understand and maintain because everything stays in one language.
+
+xarray remains excellent and widely used in practice.
+However, for this course's focus on implementing and understanding statistical downscaling methods, Julia's combination of high performance and readability makes it easier to write, test, and apply custom algorithms to real climate data.
+
+## Objectives
+
+1. Load and explore climate model output using YAXArrays.jl
+1. Work with NetCDF files and understand CMIP6 data structure
+1. Extract and visualize climate model data for specific locations and time periods
+
+## Before
+
+::: {.callout-important}
+## Instructions
+
+Before starting the lab, uncomment the `Pkg.instantiate()` line in the first code block and run it to install all required packages.
+This will take a few minutes the first time.
+After installation completes, comment the line back out to avoid reinstalling on subsequent runs.
+:::
+
+## Tasks
+
+All packages that you need are included, and will be installed when you `instantiate` the project.
+
+1. Work through the [Getting Started with YAXArrays.jl](https://juliadatacubes.github.io/YAXArrays.jl/dev/get_started.html) user guide and implement the examples in this lab. Note that you will need to modify the code block to use `using ...` for all packages. 
+  - You can copy or paste the code blocks from the tutorial, but try to make sure you understand what each line is doing.
+  - It's good practice to put all your `using` statements at the top of your code blocks. As work through more tutorials, put all the `using ...` statements together. Often, it's helpful to sort them alphabetically or in another logical order.
+  - DO add brief text between code blocks -- think of this as your notes to yourself
+2. A lot of the functionality of `YAXArrays.jl` comes from from [`DimensionalData.jl`](https://rafaqz.github.io/DimensionalData.jl/stable/basics). In particular, functions for selecting subsets of data, and for grouping and aggregating data are provided in `DimensionalData`.
+  - Read through the [Dimensions](https://rafaqz.github.io/DimensionalData.jl/stable/dimensions), [Selectors](https://rafaqz.github.io/DimensionalData.jl/stable/selectors), and other sections of the `DimensionalData` documentation under "Getting Started"
+  - Work through the `YAXArrays` [tutorial on selecting data](https://juliadatacubes.github.io/YAXArrays.jl/dev/UserGuide/select.html)
+    - Pro tip: replace `path = download(url, fname)` with `if !isfile(fname); download(url, fname); end` to avoid re-downloading the file every time you run the code block
+3. Working through tutorials can get repetitive, so you don't need to implement every YAXArrays user guide. However, do take a few minutes to browse through the other available guides so you're aware of what functionality exists when you need it later.
+4. Work through the [Plotting Maps](https://juliadatacubes.github.io/YAXArrays.jl/dev/tutorials/plottingmaps.html) tutorial
+  - Instead of `GLMakie`, we will use `CairoMakie`. You can replace `using GLMakie` and `using GLMakie.GeometryBasics` with `using CairoMakie` and `using CairoMakie.GeometryBasics`. Read more about Makie backends [here](https://docs.makie.org/dev/explanations/backends/backends)
+  - Don't worry about the `AlgebraofGraphics.jl` component, although it is installed if you want to try.
+5. The `store ="gs://cmip6/CMIP6/ScenarioMIP/DKRZ/MPI-ESM1-2-HR/ssp585/r1i1p1f1/3hr/tas/gn/v20190710/"` for the Plotting Maps tutorial is actually quite powerful.
+  - What are we working with? Refer to the [CMIP6 Data Reference Syntax](https://pcmdi.llnl.gov/CMIP6/Guide/dataUsers.html) for more information on the file structure used
+    - `cmip6`: name of the top-level Google Cloud storage bucket (hence `gs`)
+    - `CMIP6`: root directory for the project
+    - `ScenarioMIP`: MIP (Model Intercomparison Project) name
+    - `DKRZ`: institution ID (here, the German Climate Computing Center)
+    - `MPI-ESM1-2-HR`: source ID (here, the Max Planck Institute Earth System Model, version 1-2, high resolution version)
+    - `ssp585`: experiment ID (here, the Shared Socioeconomic Pathway 5-8.5, a very high emissions scenario)
+    - `r1i1p1f1`: variant label. `r1` is realization 1 (this would change for different ensemble members, if available). `i1` is initialization method 1. `p1` is physics version 1. `f1` is forcing index 1
+    - `3hr`: time frequency (3-hourly data)
+    - `tas`:  variable ID (near-surface air temperature)
+    - `gn`: grid label (native grid)
+    - `v20190710`: version (version date)
+  - Select a single rectangular region. Compute the average `tas` over that region (if you're fancy, weight by the cosine of latitude to account for the decreasing area of grid cells towards the poles, as shown in [this xarray example](https://docs.xarray.dev/en/latest/examples/area_weighted_temperature.html)) and plot the time series of `tas` for that region.
+  - Using that time series, find the hottest and coldest 3-hourly periods in the entire dataset for that region. For those two time periods, plot the spatial distribution of `tas` over the entire globe using a map projection of your choice.
+
+Rice University members can access [this "Gem"](https://gemini.google.com/gem/1nQDNg6wH03fM1mYn5Ds7oK9qIsFOjYYN?usp=sharing) (a large language model with specific prompts) on Google Gemini.
+It is designed to help you with syntax and programming challenges related to these specific packages, and to help you translate concepts from Python (e.g., xarray) to Julia.
+As with all LLMs (and humans), it can be wrong.
+While it probably can answer the whole lab for you, that would defeat the entire purpose of learning how to use these tools, so please use it wisely and in accordance with the course AI policy.
+
+## Code
+
+```{julia}
+#| output: false
+using Pkg
+lab_dir = dirname(@__FILE__)
+Pkg.activate(lab_dir)
+# Pkg.instantiate() # uncomment this the first time you run the lab to install packages, then comment it back
+```
+

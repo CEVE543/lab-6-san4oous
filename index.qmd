@@ -1,7 +1,7 @@
 ---
 title: "CEVE 543 Fall 2025 Lab 6: Julia Climate Data Tools"
 subtitle: "YAXArrays.jl, NetCDF.jl, exploring CMIP6 data structure"
-author: CEVE 543 Fall 2025
+author: Alisa Sannikova
 date: "2025-10-17"
 type: "lab"
 module: 2
@@ -9,7 +9,7 @@ week: 9
 objectives:
   - "Load and explore climate model output using YAXArrays.jl"
   - "Work with NetCDF files and understand CMIP6 data structure"
-  - "Extract and visualize climate model data for specific locations and time periods"
+  - "Extract and visualize climatquarto render index.qmd --to typste model data for specific locations and time periods"
   - "Establish foundation for downscaling and bias correction exercises"
 ps_connection: "Establishes data handling skills needed for all PS2 problems working with climate model output"
 
@@ -116,6 +116,327 @@ While it probably can answer the whole lab for you, that would defeat the entire
 using Pkg
 lab_dir = dirname(@__FILE__)
 Pkg.activate(lab_dir)
-# Pkg.instantiate() # uncomment this the first time you run the lab to install packages, then comment it back
+#Pkg.instantiate() # uncomment this the first time you run the lab to install packages, then comment it back
 ```
 
+### Task 1
+```{julia}
+using YAXArrays
+using YAXArrays: YAXArrays as YAX
+
+a = YAXArray(rand(2,3))
+```
+
+```{julia}
+# axes or dimensions with name and tick values
+axlist = (
+    YAX.time(range(1, 20, length=20)),
+    lon(range(1, 10, length=10)),
+    lat(range(1, 5, length=15)),
+    Variables(["temperature", "precipitation"])
+)
+
+# the actual data matching the dimensions defined in axlist
+data = rand(20, 10, 15, 2)
+
+# metadata about the array
+props = Dict(
+    "origin" => "YAXArrays.jl example",
+    "x" => "longitude",
+    "y" => "latitude",
+);
+
+a2 = YAXArray(axlist, data, props)
+```
+
+```{julia}
+a2[Variables=At("temperature"), time=1].data
+```
+
+### Task 2 
+
+I tried to follow instructions but for some reason they did not work. 
+
+```{julia}
+using YAXArrays
+using NetCDF
+using Downloads: download
+
+path = download("https://archive.unidata.ucar.edu/software/netcdf/examples/tos_O1_2001-2002.nc", "example.nc")
+ds = open_dataset(path)
+```
+
+```{julia}
+tos = ds.tos
+```
+
+needed data selection 
+
+```{julia}
+tos[lon = At(1), lat = At(-79.5)]
+```
+
+```{julia}
+using CFTime
+time1 = DateTime360Day(2001,01,16)
+tos[time = At(time1)]
+```
+
+```{julia}
+tos[lon = 1:10, lat = 1:10]
+```
+
+```{julia}
+tos[lon = 90 .. 180]
+```
+
+```{julia}
+using IntervalSets
+tos[lon =Interval{:open,:closed}(90,180)]
+```
+
+```{julia}
+collect(tos.lat)
+```
+
+```{julia}
+lookup(tos, :lon)
+```
+
+### Task 4 Plotting Maps 
+```{julia}
+using Zarr, YAXArrays, Dates
+using DimensionalData
+using CairoMakie, GeoMakie
+using CairoMakie.GeometryBasics
+
+store ="gs://cmip6/CMIP6/ScenarioMIP/DKRZ/MPI-ESM1-2-HR/ssp585/r1i1p1f1/3hr/tas/gn/v20190710/"
+```
+
+```{julia}
+g = open_dataset(zopen(store, consolidated=true))
+```
+
+```{julia}
+c = g["tas"];
+```
+
+```{julia}
+ct1_slice = c[time = Near(Date("2015-01-01"))];
+```
+
+```{julia}
+lon_d = lookup(ct1_slice, :lon)
+lat_d = lookup(ct1_slice, :lat)
+data_d = ct1_slice.data[:,:];
+```
+
+```{julia}
+CairoMakie.activate!()
+
+fig, ax, plt = heatmap(ct1_slice; colormap = :seaborn_icefire_gradient,
+    axis = (; aspect=DataAspect()),
+    figure = (; size = (1200,600), fontsize=24))
+fig
+```
+
+```{julia}
+δlon = (lon_d[2] - lon_d[1])/2
+nlon = lon_d .- 180 .+ δlon
+ndata = circshift(data_d, (192,1))
+```
+
+```{julia}
+fig = Figure(;size=(1200,600))
+ax = GeoAxis(fig[1,1])
+surface!(ax, nlon, lat_d, ndata; colormap = :seaborn_icefire_gradient, shading=false)
+cl=lines!(ax, GeoMakie.coastlines(), color = :white, linewidth=0.85)
+translate!(cl, 0, 0, 1000)
+fig
+```
+
+```{julia}
+fig = Figure(; size=(1200,600))
+ax = GeoAxis(fig[1,1]; dest = "+proj=moll")
+surface!(ax, nlon, lat_d, ndata; colormap = :seaborn_icefire_gradient, shading=false)
+cl=lines!(ax, GeoMakie.coastlines(), color = :white, linewidth=0.85)
+translate!(cl, 0, 0, 1000)
+fig
+```
+
+```{julia}
+CairoMakie.activate!()
+
+ds = replace(ndata, missing =>NaN)
+sphere = uv_normal_mesh(Tesselation(Sphere(Point3f(0), 1), 128))
+
+fig = Figure(backgroundcolor=:grey25, size=(500,500))
+ax = LScene(fig[1,1], show_axis=false)
+mesh!(ax, sphere; color = ds'[end:-1:1,:], shading=false,
+    colormap = :seaborn_icefire_gradient)
+zoom!(ax.scene, cameracontrols(ax.scene), 0.5)
+rotate!(ax.scene, 2.5)
+fig
+```
+
+
+```{julia}
+using YAXArrays, Zarr, Dates
+using GLMakie
+using AlgebraOfGraphics
+using GLMakie.GeometryBasics
+using DataFrames
+GLMakie.activate!()
+```
+
+```{julia}
+store ="gs://cmip6/CMIP6/ScenarioMIP/DKRZ/MPI-ESM1-2-HR/ssp585/r1i1p1f1/3hr/tas/gn/v20190710/"
+g = open_dataset(zopen(store, consolidated=true))
+c = g["tas"];
+```
+
+```{julia}
+dim_data = readcubedata(c[time=1]); # read into memory first!
+```
+
+### Task 5 
+
+Select a single rectangular region. Compute the average tas over that region. 
+
+```{julia}
+ct2_slice = c[time = Near(Date("2019-05-25"))];
+```
+
+
+Result gave me an average temperature of 280.16K.
+
+```{julia}
+using Statistics, CairoMakie
+
+# Define bounds
+lat_min, lat_max = 41, 82
+lon_min, lon_max = 19, 191   
+
+# Extract coordinate and data arrays
+lon_d1 = lookup(ct2_slice, :lon)
+lat_d1 = lookup(ct2_slice, :lat)
+data_d1 = ct2_slice.data[:, :]   # (lon × lat)
+
+# Get indices within the region
+lat_inds = findall(lat -> lat >= lat_min && lat <= lat_max, lat_d1)
+lon_inds = findall(lon -> lon >= lon_min && lon <= lon_max, lon_d1)
+
+# Subset arrays
+lat_reg = lat_d1[lat_inds]
+lon_reg = lon_d1[lon_inds]
+data_reg = data_d1[lon_inds, lat_inds]   # (lon, lat)
+
+# Compute summary statistics
+regional_mean = mean(skipmissing(data_reg))
+
+println("Regional mean value: ", regional_mean)
+
+
+# Plot
+CairoMakie.activate!()
+fig, ax, plt = heatmap(
+    lon_reg, lat_reg, data_reg';
+    colormap = :seaborn_icefire_gradient,
+    axis = (; aspect = DataAspect(), xlabel = "Longitude", ylabel = "Latitude"),
+    figure = (; size = (1000, 600), fontsize = 20)
+)
+fig
+```
+
+Result gave me an average temperature of 277K.
+
+```{julia}
+using Dates
+dim_time = c[time=DateTime("2019-05-25") .. DateTime("2019-05-25T21:00:00")] # subset 7 t steps
+```
+
+```{julia}
+dim_time = readcubedata(dim_time); # read into memory first!
+```
+
+```{julia}
+using Statistics, Dates
+
+# 1) Pull coordinates & data
+lon2 = collect(lookup(dim_time, :lon))
+lat2 = collect(lookup(dim_time, :lat))
+tt2  = collect(lookup(dim_time, :time))          # DateTime vector
+A2   = Array(dim_time.data)                      # (lon, lat, time)
+
+# 2) Region indices (0–360° longitudes)
+lat_inds2 = findall(y -> 41 <= y <= 82,  lat2)
+lon_inds2 = findall(x -> 19 <= x <= 191, lon2)
+
+# 3) Mean over region for each time step (assumes each step is a 3-hour slice)
+nt2 = size(A2, 3)
+regional_means = [mean(skipmissing(@view A2[lon_inds2, lat_inds2, t])) for t in 1:nt2]
+
+# 4) Locate coldest & warmest 3-hour windows
+i_cold = argmin(regional_means)
+i_warm = argmax(regional_means)
+
+cold_K = regional_means[i_cold]; warm_K = regional_means[i_warm]
+cold_C = cold_K - 273.15;        warm_C = warm_K - 273.15
+
+println("Coldest 3-hour window:")
+println("  Time:   ", tt2[i_cold])
+println("  Mean:   ", round(cold_K, digits=2), " K  (", round(cold_C, digits=2), " °C)")
+
+println("\nWarmest 3-hour window:")
+println("  Time:   ", tt2[i_warm])
+println("  Mean:   ", round(warm_K, digits=2), " K  (", round(warm_C, digits=2), " °C)")
+```
+
+Coldest 3-hour window:
+  Time:   2019-05-25T21:00:00
+  Mean:   276.83 K  (3.68 °C)
+
+Warmest 3-hour window:
+  Time:   2019-05-25T09:00:00
+   Mean:   279.85 K  (6.7 °C)
+
+Plotting the coldest one 
+```{julia}
+ct1_slicecold = c[time = Near(DateTime("2019-05-25T21:00:00"))];
+```
+
+```{julia}
+lon_dcold = lookup(ct1_slicecold, :lon)
+lat_dcold = lookup(ct1_slicecold, :lat)
+data_dcold = ct1_slicecold.data[:,:];
+```
+
+```{julia}
+GLMakie.activate!()
+
+fig, ax, plt = heatmap(ct1_slicecold; colormap = :seaborn_icefire_gradient,
+    axis = (; aspect=DataAspect()),
+    figure = (; size = (1200,600), fontsize=24))
+fig
+```
+
+ploting the hottest one 
+
+```{julia}
+ct1_slicehot = c[time = Near(DateTime("2019-05-25T09:00:00"))];
+```
+
+```{julia}
+lon_dhot = lookup(ct1_slicehot, :lon)
+lat_dhot = lookup(ct1_slicehot, :lat)
+data_dhot = ct1_slicehot.data[:,:];
+```
+
+```{julia}
+GLMakie.activate!()
+
+fig, ax, plt = heatmap(ct1_slicehot; colormap = :seaborn_icefire_gradient,
+    axis = (; aspect=DataAspect()),
+    figure = (; size = (1200,600), fontsize=24))
+fig
+```
